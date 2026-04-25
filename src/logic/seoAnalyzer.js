@@ -14,7 +14,6 @@ const calculateReadability = (text) => {
   words.forEach(w => syllables += countSyllables(w));
 
   // Índice de Flesch-Szigriszt (Adaptado al español)
-  // 206.84 - 60 * (sílabas/palabras) - 1.02 * (palabras/frases)
   const score = 206.84 - 60 * (syllables / wordCount) - 1.02 * (wordCount / sentences);
   
   if (score > 80) return { label: 'Muy fácil', score };
@@ -24,22 +23,39 @@ const calculateReadability = (text) => {
   return { label: 'Muy difícil', score };
 };
 
-export const analyzeSEO = (content, level, brandKeywords, semanticKeywords = []) => {
+/**
+ * @param {string} content - HTML del editor.
+ * @param {string} level - Nivel de optimización (Leve, Moderado, Fuerte).
+ * @param {string[]} brandKeywords - Keywords de la marca.
+ * @param {string[]} semanticKeywords - Keywords semánticas LSI.
+ * @param {object} settings - Configuración de la app.
+ * @param {boolean} settings.enableReadability - Si el módulo de legibilidad está activo.
+ * @param {boolean} settings.enableLSI - Si el módulo de entidades LSI está activo.
+ * @param {number} settings.scoreThreshold - Umbral para considerar "verde" (ej: 70, 80, 90).
+ */
+export const analyzeSEO = (content, level, brandKeywords, semanticKeywords = [], settings = {}) => {
+  const enableReadability = settings.enableReadability !== false;
+  const enableLSI = settings.enableLSI !== false;
+
   const rawText = content.replace(/<[^>]*>/g, ' '); 
   const words = rawText.toLowerCase().split(/\s+/).filter(w => w.length > 2);
   const wordCount = words.length;
-  const mainKw = brandKeywords[0].toLowerCase();
+  const mainKw = brandKeywords[0]?.toLowerCase() || '';
 
   let score = 0;
   let checks = [];
+  let readability = null;
+  let foundSemantics = [];
 
-  // 1. Legibilidad (Flesch-Szigriszt)
-  const readability = calculateReadability(rawText);
-  if (readability.score > 50) {
-    score += 20;
-    checks.push({ label: `Legibilidad: ${readability.label}`, status: 'pass' });
-  } else {
-    checks.push({ label: `Legibilidad: ${readability.label}`, status: 'fail' });
+  // 1. Legibilidad (Flesch-Szigriszt) — Condicional
+  if (enableReadability) {
+    readability = calculateReadability(rawText);
+    if (readability.score > 50) {
+      score += 20;
+      checks.push({ label: `Legibilidad: ${readability.label}`, status: 'pass' });
+    } else {
+      checks.push({ label: `Legibilidad: ${readability.label}`, status: 'fail' });
+    }
   }
 
   // 2. Primer párrafo
@@ -51,20 +67,22 @@ export const analyzeSEO = (content, level, brandKeywords, semanticKeywords = [])
     checks.push({ label: 'Keyword no detectada al inicio', status: 'fail' });
   }
 
-  // 3. Entidades y Semántica (LSI)
-  const foundSemantics = semanticKeywords.filter(kw => rawText.toLowerCase().includes(kw.toLowerCase()));
-  const semanticPercentage = (foundSemantics.length / semanticKeywords.length) * 100;
-  
-  if (semanticPercentage >= 40) {
-    score += 20;
-    checks.push({ label: `Riqueza semántica (${foundSemantics.length} LSI)`, status: 'pass' });
-  } else {
-    checks.push({ label: `Faltan términos LSI (${foundSemantics.length}/${semanticKeywords.length})`, status: 'fail' });
+  // 3. Entidades y Semántica (LSI) — Condicional
+  if (enableLSI && semanticKeywords.length > 0) {
+    foundSemantics = semanticKeywords.filter(kw => rawText.toLowerCase().includes(kw.toLowerCase()));
+    const semanticPercentage = (foundSemantics.length / semanticKeywords.length) * 100;
+    
+    if (semanticPercentage >= 40) {
+      score += 20;
+      checks.push({ label: `Riqueza semántica (${foundSemantics.length} LSI)`, status: 'pass' });
+    } else {
+      checks.push({ label: `Faltan términos LSI (${foundSemantics.length}/${semanticKeywords.length})`, status: 'fail' });
+    }
   }
 
   // 4. Densidad Keyword y Strong
-  const kwMatches = (rawText.toLowerCase().match(new RegExp(mainKw, 'g')) || []).length;
-  const density = (kwMatches / wordCount) * 100;
+  const kwMatches = (rawText.toLowerCase().match(new RegExp(mainKw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length;
+  const density = wordCount > 0 ? (kwMatches / wordCount) * 100 : 0;
   const hasStrongKw = content.toLowerCase().includes(`<strong>${mainKw}</strong>`);
 
   if (density >= 0.5 && density <= 2.5) {
@@ -79,7 +97,7 @@ export const analyzeSEO = (content, level, brandKeywords, semanticKeywords = [])
     checks.push({ label: 'Keyword con strong OK', status: 'pass' });
   }
 
-  // 5. Enlaces (Seguimiento de Follow/Nofollow se hará en la UI)
+  // 5. Enlaces
   const linkCount = (content.match(/<a /g) || []).length;
   if (linkCount > 0) {
     score += 15;

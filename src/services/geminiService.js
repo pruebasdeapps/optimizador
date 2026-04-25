@@ -1,18 +1,34 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-
-// La librería usa v1beta por defecto. 
-// Según el curl del usuario, el modelo correcto es 'gemini-flash-latest'
-const genAI = new GoogleGenerativeAI(API_KEY);
-
 /**
- * Función genérica para llamar a Gemini.
+ * Función genérica para llamar a Gemini con configuración dinámica.
+ * @param {string} prompt - El prompt completo.
+ * @param {object} options - Opciones de configuración.
+ * @param {string} options.apiKey - Clave de API de Gemini.
+ * @param {string} options.model - Nombre del modelo (ej: 'gemini-flash-latest').
+ * @param {number} options.temperature - Temperatura de la IA (0.1 a 1.0).
  */
-async function callGemini(prompt) {
+async function callGemini(prompt, options = {}) {
+  const apiKey = options.apiKey || import.meta.env.VITE_GEMINI_API_KEY;
+  const modelName = options.model || 'gemini-flash-latest';
+  const temperature = options.temperature ?? 0.3;
+
+  if (!apiKey) {
+    throw new Error('API Key de Gemini no configurada. Revisa la Configuración.');
+  }
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+
   try {
-    // Usamos 'gemini-flash-latest' que es el nombre que funciona en v1beta según el usuario
-    const model = genAI.getGenerativeModel({ model: 'gemini-flash-latest' });
+    const model = genAI.getGenerativeModel({
+      model: modelName,
+      generationConfig: {
+        temperature,
+        topP: 0.9,
+        maxOutputTokens: 8192,
+      },
+    });
+
     const result = await model.generateContent(prompt);
     const response = await result.response;
     let text = response.text();
@@ -26,7 +42,7 @@ async function callGemini(prompt) {
 
     return text;
   } catch (error) {
-    console.error(`[GeminiService] Error:`, error);
+    console.error(`[GeminiService] Error con modelo ${modelName}:`, error);
     throw error;
   }
 }
@@ -34,14 +50,14 @@ async function callGemini(prompt) {
 /**
  * Optimización completa (RAE + Estilo + SEO)
  */
-export async function optimizeFull(fullPrompt) {
-  return callGemini(fullPrompt);
+export async function optimizeFull(fullPrompt, options = {}) {
+  return callGemini(fullPrompt, options);
 }
 
 /**
  * Solo inserción de enlaces contextuales
  */
-export async function injectLinks(keywords, links, htmlContent) {
+export async function injectLinks(keywords, links, htmlContent, options = {}) {
   const prompt = `Actúa como un experto en SEO editorial. Tu tarea es insertar enlaces internos de forma natural en el texto HTML proporcionado.
 
 ## Instrucciones:
@@ -64,5 +80,5 @@ Devuelve SOLO el código HTML resultante, sin bloques de código markdown ni exp
 **Texto original:**
 ${htmlContent}`;
 
-  return callGemini(prompt);
+  return callGemini(prompt, options);
 }
